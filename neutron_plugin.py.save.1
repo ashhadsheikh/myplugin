@@ -1,0 +1,120 @@
+from oslo_config import cfg
+from neutron import neutron_plugin_base_v2
+from neutron.api.v2 import attributes
+from neutron.plugins.myplugin.db import models as brocade_db
+from neutron.db import db_base_plugin_v2
+from oslo_log import log
+LOG = log.getLogger(__name__)
+AGENT_OWNER_PREFIX = "network:"
+
+class MyNeutronPlugin(db_base_plugin_v2.NeutronDbPluginV2):
+        def __init__(self):
+
+      	    self.physical_interface = (cfg.CONF.PHYSICAL_INTERFACE.
+                                   physical_interface)
+        def create_network(self, context, network):
+        """Create network.
+        This call to create network translates to creation of port-profile on
+        the physical switch.
+        """
+
+       		 with context.session.begin(subtransactions=True):
+            		net = super(BrocadePluginV2, self).create_network(context, network)
+           		 net_uuid = net['id']
+            		vlan_id = self._vlan_bitmap.get_next_vlan(None)
+            		switch = self._switch
+            		try:
+                		self._driver.create_network(switch['address'],
+                                            switch['username'],
+                                            switch['password'],
+                                            vlan_id)
+            except Exception as e:
+                # Proper formatting
+                LOG.warning(_("Brocade NOS driver:"))
+                LOG.warning(_("%s"), e)
+                LOG.debug(_("Returning the allocated vlan (%d) to the pool"),
+                          vlan_id)
+                self._vlan_bitmap.release_vlan(int(vlan_id))
+                raise Exception("Brocade plugin raised exception, check logs")
+
+            brocade_db.create_network(context, net_uuid, vlan_id)
+            self._process_l3_create(context, network['network'], net['id'])
+            self._extend_network_dict_l3(context, net)
+
+        LOG.info(_("Allocated vlan (%d) from the pool"), vlan_id)
+        return net
+        def update_network(self, context, id, network):
+            # Update a created network matched by id with
+            # data in the network dictionary. Send back a
+            # dictionary to display the network's updated info
+            return network
+
+        def get_network(self, context, id, fields=None):
+            network = {}
+            # List information of a specific network matched by id
+            # and return it in a form of dictionary
+            return network
+
+        def get_networks(self, context, filters=None, fields=None):
+            network = {}
+            # List all networks that are active
+            return network
+
+        def delete_network(self, context, id):
+            # Delete a specific network matched by id
+            # return back the id of the network.
+            return id
+            
+        def create_port(self, context, network):
+            # Create a network by using data from network dictionary
+            # Send back a dictionary to display created network's info
+            return network
+
+        def update_port(self, context, id, network):
+            # Update a created network matched by id with
+            # data in the network dictionary. Send back a
+            # dictionary to display the network's updated info
+            return network
+
+        def get_port(self, context, id, fields=None):
+            network = {}
+            # List information of a specific network matched by id
+            # and return it in a form of dictionary
+            return network
+
+        def get_ports(self, context, filters=None, fields=None):
+            network = {}
+            # List all networks that are active
+            return network
+
+        def delete_port(self, context, id):
+            # Delete a specific network matched by id
+            # return back the id of the network.
+            return id
+            
+        def create_subnet(self, context, network):
+            # Create a network by using data from network dictionary
+            # Send back a dictionary to display created network's info
+            return network
+
+        def update_subnet(self, context, id, network):
+            # Update a created network matched by id with
+            # data in the network dictionary. Send back a
+            # dictionary to display the network's updated info
+            return network
+
+        def get_subnet(self, context, id, fields=None):
+            network = {}
+            # List information of a specific network matched by id
+            # and return it in a form of dictionary
+            return network
+
+        def get_subnets(self, context, filters=None, fields=None):
+            network = {}
+            # List all networks that are active
+            return network
+
+        def delete_subnet(self, context, id):
+            # Delete a specific network matched by id
+            # return back the id of the network.
+            return id            
