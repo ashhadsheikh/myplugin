@@ -2,13 +2,32 @@ from neutron.db import db_base_plugin_v2
 from oslo_log import log as logging
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
+from neutron.db import extraroute_db
+from neutron.db import agentschedulers_db
+from neutron.db import address_scope_db
+from neutron.db import agents_db
+from neutron.db import agentschedulers_db
+from neutron.db import allowedaddresspairs_db as addr_pair_db
+from neutron.db import api as db_api
+from neutron.db import db_base_plugin_v2
+from neutron.db import dvr_mac_db
+from neutron.db import external_net_db
+from neutron.db import extradhcpopt_db
+from neutron.db import models_v2
+from neutron.db import netmtu_db
+from neutron.api.v2 import attributes
+from neutron.db.quota import driver  # noqa
+
 import os
 LOG = logging.getLogger(__name__)
-class MyNeutronPlugin(db_base_plugin_v2.NeutronDbPluginV2,sg_db_rpc.SecurityGroupServerRpcMixin):
+class MyNeutronPlugin(db_base_plugin_v2.NeutronDbPluginV2,
+                      extraroute_db.ExtraRoute_db_mixin,sg_db_rpc.SecurityGroupServerRpcMixin,
+                external_net_db.External_net_db_mixin,
+                      agentschedulers_db.AgentSchedulerDbMixin):
         def __init__(self):
         	super(MyNeutronPlugin, self).__init__()
-        	self.supported_extension_aliases = ["binding","quotas", "security-group","extraroute",
-                                            "agent"]
+        	self.supported_extension_aliases = ["provider", "external-net", "binding","quotas", "security-group","extraroute",
+                                            "agent", "router"]
         def create_network(self, context, network):
 		    with context.session.begin(subtransactions=True):
 		        net = super(MyNeutronPlugin, self).create_network(context, network)
