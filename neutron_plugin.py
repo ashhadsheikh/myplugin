@@ -45,28 +45,55 @@ from neutron.db import vlantransparent_db
 from neutron.services.qos import qos_consts
 import fcntl, socket, struct
 from neutron.db import portbindings_base
-
+from neutron.plugins.common import constants as svc_constants
+from neutron.common import constants as n_const
+from neutron.api.rpc.handlers import l3_rpc
 LOG = logging.getLogger(__name__)
 
 
 class MyNeutronPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                       extraroute_db.ExtraRoute_db_mixin, sg_db_rpc.SecurityGroupServerRpcMixin, addr_pair_db.AllowedAddressPairsMixin,
-                      external_net_db.External_net_db_mixin, netmtu_db.Netmtu_db_mixin, agentschedulers_db.AgentSchedulerDbMixin, vlantransparent_db.Vlantransparent_db_mixin,portbindings_base.PortBindingBaseMixin):
+                      external_net_db.External_net_db_mixin, netmtu_db.Netmtu_db_mixin, agentschedulers_db.DhcpAgentSchedulerDbMixin, vlantransparent_db.Vlantransparent_db_mixin,portbindings_base.PortBindingBaseMixin):
 
     def __init__(self):
         super(MyNeutronPlugin, self).__init__()
         self.base_binding_dict = self._get_base_binding_dict()
         portbindings_base.register_port_dict_function()
+        self.start_periodic_dhcp_agent_status_check()
+        self.setup_rpc()
         self.supported_extension_aliases = [
             "provider", "external-net", "binding", "quotas", "security-group", "extraroute",
-            "agent"]
+            "agent","extra_dhcp_opt","dhcp_agent_scheduler"]
+
+    def setup_rpc(self):
+        # RPC support
+        self.service_topics = {svc_constants.CORE: topics.PLUGIN,
+                               svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
+        self.conn = n_rpc.create_connection(new=True)
+        self.agent_notifiers[n_const.AGENT_TYPE_DHCP] = (
+            dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
+        )
+        self.agent_notifiers[n_const.AGENT_TYPE_L3] = (
+            l3_rpc_agent_api.L3AgentNotifyAPI()
+        )
+        self.endpoints = [securitygroups_rpc.SecurityGroupServerRpcCallback(),
+                          dhcp_rpc.DhcpRpcCallback(),
+                          l3_rpc.L3RpcCallback(),
+                          agents_db.AgentExtRpcCallback(),
+                          metadata_rpc.MetadataRpcCallback()]
+        for svc_topic in self.service_topics.values():
+            self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)
+
+        # Consume from all consumers in threads
+        self.conn.consume_in_threads()
 
     def create_network(self, context, network):
         with context.session.begin(subtransactions=True):
             net = super(MyNeutronPlugin, self).create_network(context, network)
             net_name = net['name']
             try:
-                os.system("sudo ip netns add " + net_name)
+                #os.system("sudo ip netns add " + net_name)
+                print net_name
             except Exception as e:
                 raise Exception("Plugin raised exception, check logs")
         return net
@@ -109,7 +136,7 @@ class MyNeutronPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             try:
                 net = self.get_network(context, net_id)
                 net_name = net['name']
-                os.system("sudo ip netns delete " + net_name)
+                #os.system("sudo ip netns delete " + net_name)
             except Exception as e:
                 raise Exception("plugin raised exception, check logs")
             result = super(MyNeutronPlugin, self).delete_network(context,
@@ -126,15 +153,11 @@ class MyNeutronPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             try:
                 vethAend = neutron_port['name'] + '_endA'
                 vethBend = vethAend + '_endB'
-                os.system(
-                    "sudo ip link add " +
-                    vethAend +
-                    " type veth peer name " +
-                    vethBend)
+                #os.system("sudo ip link add " +vethAend +" type veth peer name " +vethBend)
                 #net = self.get_subnet(context, port['fixed_ips']['subnet_id'])
                 interface_mac=neutron_port['mac_address']
-                os.system("sudo ifconfig "+vethAend+" hw ether "+ interface_mac)
-                os.system("sudo ip link set " + vethAend + " up")
+                #os.system("sudo ifconfig "+vethAend+" hw ether "+ interface_mac)
+                #os.system("sudo ip link set " + vethAend + " up")
                 #os.system("sudo ovs-vsctl add-port " + net['name'] + " " + vethBend)
                
             except Exception as e:
@@ -167,7 +190,7 @@ class MyNeutronPlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
     def delete_port(self, context, id):
         with context.session.begin(subtransactions=True):
-            port = super(MyNeutronPlugin, self).delete_port(context, id, None)
+            port = super(MyNeutronPlugin, self).delete_port(context, id)
             try:
                 a = 1  # core functionality of network creation here
             except Exception as e:
@@ -185,32 +208,17 @@ class MyNeutronPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             try:
                 name = result['name']
                 ip = '10.10.10.3'
-                os.system("sudo ovs-vsctl add-br " + name)
+                #os.system("sudo ovs-vsctl add-br " + name)
                 net_uuid = result['network_id']
-                net = self.get_network(context, net_uuid)
-                network_name = net['name']
-                vethAend = network_name + '_endA'
-                vethBend = network_name + '_endB'
-                os.system(
-                    "sudo ip link add " +
-                    vethAend +
-                    " type veth peer name " +
-                    vethBend)
-                os.system(
-                    "sudo ip link set " +
-                    vethAend +
-                    " netns " +
-                    network_name)
-                os.system("sudo ovs-vsctl add-port " + name + " " + vethBend)
-                os.system(
-                    "sudo ip netns exec " +
-                    name +
-                    " ifconfig " +
-                    vethAend +
-                    " " +
-                    ip +
-                    " up")
-                os.system("sudo ip link set " + vethBend + " up")
+                #net = self.get_network(context, net_uuid)
+                #network_name = net['name']
+                #vethAend = network_name + '_endA'
+                #vethBend = network_name + '_endB'
+                #os.system("sudo ip link add " +vethAend +" type veth peer name " +vethBend)
+                #os.system("sudo ip link set " +vethAend +" netns " +network_name)
+                #os.system("sudo ovs-vsctl add-port " + name + " " + vethBend)
+                #os.system("sudo ip netns exec " +name +" ifconfig " +vethAend +" " +ip +" up")
+                #os.system("sudo ip link set " + vethBend + " up")
             except Exception as e:
                 raise Exception("Plugin raised exception, check logs")
         return result
@@ -252,7 +260,7 @@ class MyNeutronPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             try:
                 subnet = self.get_subnet(context, id)
                 subnet_name = subnet['name']
-                os.system("sudo ovs-vsctl --if-exists del-br " + subnet_name)
+                #os.system("sudo ovs-vsctl --if-exists del-br " + subnet_name)
             except Exception as e:
                 raise Exception("Plugin raised exception, check logs")
             result = super(MyNeutronPlugin, self).delete_subnet(context, id)
